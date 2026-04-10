@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Unique identifier for this daemon -->
+    <key>Label</key>
+    <string>com.local.anchorman</string>
+
+    <!-- Path to the watcher script -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/usr/local/bin/anchorman</string>
+    </array>
+
+    <!-- Start automatically at boot -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart the daemon if it crashes or exits -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Log stdout and stderr -->
+    <key>StandardOutPath</key>
+    <string>/var/log/anchorman.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/anchorman.error.log</string>
+
+    <!-- Run as root so networksetup can toggle WiFi without prompts -->
+    <!-- (LaunchDaemons in /Library/LaunchDaemons already run as root) -->
+
+    <!-- Throttle restart attempts if the script keeps failing -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>
