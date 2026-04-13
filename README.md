@@ -1,13 +1,24 @@
 # Anchorman
 
+You have a wired workbench: a Thunderbolt dock, ethernet, display, a pair of speakers and a Bluetooth keyboard and mouse. Two Macs live on that desk — one for work, one for personal use. Switching between them should be as simple as moving a single cable.
+
+Without Anchorman, that means manually connecting Bluetooth devices, waiting for them to pair, and disabling WiFi so you're actually on the fast wired network. Every. Single. Time.
+
+**Anchorman automates all of that.** Plug the Thunderbolt cable into a Mac and within seconds:
+
+- Your Bluetooth keyboard and mouse connect to it automatically
+- WiFi turns off because you're already on ethernet
+
+Unplug and hand the cable to the other Mac — it takes over just as seamlessly. No menus, no pairing screens, no forgotten WiFi toggle.
+
+---
+
 A pair of macOS launchd daemons that manage your peripherals automatically when you dock and undock.
 
 | Daemon                | What it does                                     |
 |-----------------------|--------------------------------------------------|
 | `anchorman-wifi`      | Disables WiFi when docked to ethernet            |
 | `anchorman-bluetooth` | Connects Bluetooth peripherals when dock present |
-
-Together they make switching a single Thunderbolt cable between two Macs seamless — WiFi and Bluetooth peripherals follow the active machine automatically.
 
 ## Requirements
 
