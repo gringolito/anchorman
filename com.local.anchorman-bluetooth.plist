@@ -5,13 +5,13 @@
 <dict>
     <!-- Unique identifier for this daemon -->
     <key>Label</key>
-    <string>com.local.anchorman</string>
+    <string>com.local.anchorman-bluetooth</string>
 
     <!-- Path to the watcher script -->
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/usr/local/bin/anchorman</string>
+        <string>/usr/local/bin/anchorman-bluetooth</string>
     </array>
 
     <!-- Start automatically at boot -->
@@ -24,11 +24,11 @@
 
     <!-- Log stdout and stderr -->
     <key>StandardOutPath</key>
-    <string>/var/log/anchorman.log</string>
+    <string>/var/log/anchorman-bluetooth.log</string>
     <key>StandardErrorPath</key>
-    <string>/var/log/anchorman.error.log</string>
+    <string>/var/log/anchorman-bluetooth.error.log</string>
 
-    <!-- Run as root so networksetup can toggle WiFi without prompts -->
+    <!-- Runs as root; blueutil is invoked as the console user via su -->
     <!-- (LaunchDaemons in /Library/LaunchDaemons already run as root) -->
 
     <!-- Throttle restart attempts if the script keeps failing -->

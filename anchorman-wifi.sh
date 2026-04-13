@@ -1,10 +1,10 @@
 #!/bin/bash
-# anchorman.sh
+# anchorman-wifi.sh
 # Monitors ethernet state and automatically enables/disables WiFi.
 # Designed to run as a launchd daemon.
 
 log() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [anchorman] $*"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [anchorman-wifi] $*"
 }
 
 # ---------------------------------------------------------------------------

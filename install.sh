@@ -1,25 +1,45 @@
 #!/usr/bin/env bash
-# install.sh — Install or uninstall the anchorman launchd daemon
+# install.sh — Install or uninstall the anchorman launchd daemons
 #
 # Usage:
-#   sudo ./install.sh              # install
-#   sudo ./install.sh --uninstall  # remove
+#   sudo ./install.sh                    # install both daemons
+#   sudo ./install.sh --wifi             # install WiFi daemon only
+#   sudo ./install.sh --bluetooth        # install Bluetooth daemon only
+#   sudo ./install.sh --uninstall        # uninstall both daemons
+#   sudo ./install.sh --uninstall --wifi       # uninstall WiFi daemon only
+#   sudo ./install.sh --uninstall --bluetooth  # uninstall Bluetooth daemon only
 
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Paths
+# Paths — WiFi daemon
 # ---------------------------------------------------------------------------
-SCRIPT_NAME="anchorman.sh"
-PLIST_NAME="com.local.anchorman.plist"
-LABEL="com.local.anchorman"
+WIFI_SCRIPT_NAME="anchorman-wifi.sh"
+WIFI_PLIST_NAME="com.local.anchorman-wifi.plist"
+WIFI_LABEL="com.local.anchorman-wifi"
+WIFI_INSTALL_BIN="/usr/local/bin/anchorman-wifi"
+WIFI_INSTALL_PLIST="/Library/LaunchDaemons/${WIFI_PLIST_NAME}"
+WIFI_LOG="/var/log/anchorman-wifi.log"
+WIFI_ERROR_LOG="/var/log/anchorman-wifi.error.log"
 
-INSTALL_BIN="/usr/local/bin/${SCRIPT_NAME%.sh}"
-INSTALL_PLIST="/Library/LaunchDaemons/${PLIST_NAME}"
-LOG_FILE="/var/log/anchorman.log"
-ERROR_LOG="/var/log/anchorman.error.log"
+# ---------------------------------------------------------------------------
+# Paths — Bluetooth daemon
+# ---------------------------------------------------------------------------
+BT_SCRIPT_NAME="anchorman-bluetooth.sh"
+BT_PLIST_NAME="com.local.anchorman-bluetooth.plist"
+BT_LABEL="com.local.anchorman-bluetooth"
+BT_INSTALL_BIN="/usr/local/bin/anchorman-bluetooth"
+BT_INSTALL_PLIST="/Library/LaunchDaemons/${BT_PLIST_NAME}"
+BT_CONF="/usr/local/etc/anchorman-bluetooth.conf"
+BT_LOG="/var/log/anchorman-bluetooth.log"
+BT_ERROR_LOG="/var/log/anchorman-bluetooth.error.log"
 
-# Source files must be in the same directory as this script
+# Legacy label/paths for migration
+LEGACY_LABEL="com.local.anchorman"
+LEGACY_BIN="/usr/local/bin/anchorman"
+LEGACY_PLIST="/Library/LaunchDaemons/com.local.anchorman.plist"
+
+# Source files are in the same directory as this script
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ---------------------------------------------------------------------------
@@ -35,11 +55,11 @@ else
     _BOLD="" _GREEN="" _YELLOW="" _RED="" _RESET=""
 fi
 
-info()    { echo "${_BOLD}[INFO]${_RESET}  $*"; }
-ok()      { echo "${_GREEN}${_BOLD}[ OK ]${_RESET}  $*"; }
-warn()    { echo "${_YELLOW}${_BOLD}[WARN]${_RESET}  $*"; }
-error()   { echo "${_RED}${_BOLD}[ERROR]${_RESET} $*" >&2; }
-die()     { error "$*"; exit 1; }
+info()  { echo "${_BOLD}[INFO]${_RESET}  $*"; }
+ok()    { echo "${_GREEN}${_BOLD}[ OK ]${_RESET}  $*"; }
+warn()  { echo "${_YELLOW}${_BOLD}[WARN]${_RESET}  $*"; }
+error() { echo "${_RED}${_BOLD}[ERROR]${_RESET} $*" >&2; }
+die()   { error "$*"; exit 1; }
 
 # ---------------------------------------------------------------------------
 # Preflight checks
@@ -53,100 +73,218 @@ preflight() {
 
     command -v networksetup &>/dev/null \
         || die "networksetup not found — is this macOS?"
+}
 
-    [[ -f "${REPO_DIR}/${SCRIPT_NAME}" ]] \
-        || die "Source script not found: ${REPO_DIR}/${SCRIPT_NAME}"
+preflight_wifi() {
+    [[ -f "${REPO_DIR}/${WIFI_SCRIPT_NAME}" ]] \
+        || die "Source script not found: ${REPO_DIR}/${WIFI_SCRIPT_NAME}"
+    [[ -f "${REPO_DIR}/${WIFI_PLIST_NAME}" ]] \
+        || die "Plist not found: ${REPO_DIR}/${WIFI_PLIST_NAME}"
+}
 
-    [[ -f "${REPO_DIR}/${PLIST_NAME}" ]] \
-        || die "Plist not found: ${REPO_DIR}/${PLIST_NAME}"
+preflight_bluetooth() {
+    [[ -f "${REPO_DIR}/${BT_SCRIPT_NAME}" ]] \
+        || die "Source script not found: ${REPO_DIR}/${BT_SCRIPT_NAME}"
+    [[ -f "${REPO_DIR}/${BT_PLIST_NAME}" ]] \
+        || die "Plist not found: ${REPO_DIR}/${BT_PLIST_NAME}"
+    if ! command -v blueutil &>/dev/null; then
+        warn "blueutil not found — Bluetooth management will not work until it is installed."
+        warn "Install it with: brew install blueutil"
+    fi
 }
 
 # ---------------------------------------------------------------------------
-# Install
+# Migration: remove legacy 'anchorman' daemon if present
 # ---------------------------------------------------------------------------
-install_daemon() {
-    info "Installing anchorman daemon..."
-
-    # 1. Install the watcher script
-    cp "${REPO_DIR}/${SCRIPT_NAME}" "${INSTALL_BIN}"
-    chmod 755 "${INSTALL_BIN}"
-
-    # 2. Install the launchd plist
-    cp "${REPO_DIR}/${PLIST_NAME}" "${INSTALL_PLIST}"
-    chown root:wheel "${INSTALL_PLIST}"
-    chmod 644 "${INSTALL_PLIST}"
-
-    # 3. Unload any existing instance (ignore "not loaded" errors)
-    if launchctl list "${LABEL}" &>/dev/null; then
-        info "Daemon already loaded — unloading previous version..."
-        launchctl unload "${INSTALL_PLIST}" 2>/dev/null || true
+migrate_legacy() {
+    if launchctl list "${LEGACY_LABEL}" &>/dev/null; then
+        info "Migrating legacy 'anchorman' daemon to 'anchorman-wifi'..."
+        launchctl unload "${LEGACY_PLIST}" 2>/dev/null || true
     fi
+    [[ -f "${LEGACY_PLIST}" ]] && rm -f "${LEGACY_PLIST}"
+    [[ -f "${LEGACY_BIN}" ]]   && rm -f "${LEGACY_BIN}"
+}
 
-    # 4. Load the daemon
-    launchctl load "${INSTALL_PLIST}"
+# ---------------------------------------------------------------------------
+# Install WiFi daemon
+# ---------------------------------------------------------------------------
+install_wifi() {
+    info "Installing anchorman-wifi daemon..."
 
-    # 5. Verify it started
-    if ! launchctl list "${LABEL}" &>/dev/null; then
+    migrate_legacy
+
+    cp "${REPO_DIR}/${WIFI_SCRIPT_NAME}" "${WIFI_INSTALL_BIN}"
+    chmod 755 "${WIFI_INSTALL_BIN}"
+
+    cp "${REPO_DIR}/${WIFI_PLIST_NAME}" "${WIFI_INSTALL_PLIST}"
+    chown root:wheel "${WIFI_INSTALL_PLIST}"
+    chmod 644 "${WIFI_INSTALL_PLIST}"
+
+    if launchctl list "${WIFI_LABEL}" &>/dev/null; then
+        launchctl unload "${WIFI_INSTALL_PLIST}" 2>/dev/null || true
+    fi
+    launchctl load "${WIFI_INSTALL_PLIST}"
+
+    if ! launchctl list "${WIFI_LABEL}" &>/dev/null; then
         warn "Daemon loaded but not listed yet — it may start shortly."
     fi
 
-    echo
-    echo "${_BOLD}Installation complete.${_RESET}"
-    echo
-    echo "  Script  : ${INSTALL_BIN}"
-    echo "  Plist   : ${INSTALL_PLIST}"
-    echo "  Log     : ${LOG_FILE}"
-    echo "  Errors  : ${ERROR_LOG}"
-    echo
-    echo "Tip: plug/unplug in your ethernet cable and watch the log:"
-    echo "  tail -f ${LOG_FILE}"
-    echo
+    ok "anchorman-wifi installed."
+    echo "  Script : ${WIFI_INSTALL_BIN}"
+    echo "  Plist  : ${WIFI_INSTALL_PLIST}"
+    echo "  Log    : ${WIFI_LOG}"
+    echo "  Errors : ${WIFI_ERROR_LOG}"
 }
 
 # ---------------------------------------------------------------------------
-# Uninstall
+# Install Bluetooth daemon
 # ---------------------------------------------------------------------------
-uninstall_daemon() {
-    info "Uninstalling anchorman daemon..."
+install_bluetooth() {
+    info "Installing anchorman-bluetooth daemon..."
 
-    # 1. Unload the daemon
-    if launchctl list "${LABEL}" &>/dev/null; then
-        launchctl unload "${INSTALL_PLIST}" 2>/dev/null || true
-    else
-        warn "Daemon was not loaded — skipping unload."
+    cp "${REPO_DIR}/${BT_SCRIPT_NAME}" "${BT_INSTALL_BIN}"
+    chmod 755 "${BT_INSTALL_BIN}"
+
+    cp "${REPO_DIR}/${BT_PLIST_NAME}" "${BT_INSTALL_PLIST}"
+    chown root:wheel "${BT_INSTALL_PLIST}"
+    chmod 644 "${BT_INSTALL_PLIST}"
+
+    # Create sample config if one doesn't exist yet
+    if [[ ! -f "${BT_CONF}" ]]; then
+        mkdir -p "$(dirname "${BT_CONF}")"
+        cat > "${BT_CONF}" <<'EOF'
+# anchorman-bluetooth.conf
+# Configuration for the anchorman-bluetooth dock Bluetooth manager.
+
+# Name of your Thunderbolt dock as reported by macOS.
+# Use any unique substring of the dock's product name.
+# To find your dock name, run:
+#   system_profiler SPThunderboltDataType
+DOCK_NAME=""
+
+# How often (in seconds) to check for dock presence (default: 3)
+POLL_INTERVAL=3
+
+# Bluetooth devices to connect when the dock is detected.
+# Find paired device MAC addresses with: blueutil --paired
+# Example:
+#   BLUETOOTH_DEVICES=("aa:bb:cc:dd:ee:ff" "11:22:33:44:55:66")
+BLUETOOTH_DEVICES=()
+EOF
+        warn "Edit ${BT_CONF} to set your DOCK_NAME and BLUETOOTH_DEVICES before the daemon will do anything."
     fi
 
-    # 2. Remove the plist
-    if [[ -f "${INSTALL_PLIST}" ]]; then
-        rm -f "${INSTALL_PLIST}"
-    else
-        warn "Plist not found, skipping: ${INSTALL_PLIST}"
+    if launchctl list "${BT_LABEL}" &>/dev/null; then
+        launchctl unload "${BT_INSTALL_PLIST}" 2>/dev/null || true
+    fi
+    launchctl load "${BT_INSTALL_PLIST}"
+
+    if ! launchctl list "${BT_LABEL}" &>/dev/null; then
+        warn "Daemon loaded but not listed yet — it may start shortly."
     fi
 
-    # 3. Remove the script
-    if [[ -f "${INSTALL_BIN}" ]]; then
-        rm -f "${INSTALL_BIN}"
+    ok "anchorman-bluetooth installed."
+    echo "  Script : ${BT_INSTALL_BIN}"
+    echo "  Plist  : ${BT_INSTALL_PLIST}"
+    echo "  Config : ${BT_CONF}"
+    echo "  Log    : ${BT_LOG}"
+    echo "  Errors : ${BT_ERROR_LOG}"
+}
+
+# ---------------------------------------------------------------------------
+# Uninstall WiFi daemon
+# ---------------------------------------------------------------------------
+uninstall_wifi() {
+    info "Uninstalling anchorman-wifi daemon..."
+
+    if launchctl list "${WIFI_LABEL}" &>/dev/null; then
+        launchctl unload "${WIFI_INSTALL_PLIST}" 2>/dev/null || true
     else
-        warn "Script not found, skipping: ${INSTALL_BIN}"
+        warn "WiFi daemon was not loaded — skipping unload."
     fi
 
-    echo
-    echo "${_BOLD}Uninstall complete.${_RESET}"
-    echo "Log files (if any) were left in place:"
-    echo "  ${LOG_FILE}"
-    echo "  ${ERROR_LOG}"
-    echo
+    [[ -f "${WIFI_INSTALL_PLIST}" ]] && rm -f "${WIFI_INSTALL_PLIST}" \
+        || warn "Plist not found, skipping: ${WIFI_INSTALL_PLIST}"
+    [[ -f "${WIFI_INSTALL_BIN}" ]] && rm -f "${WIFI_INSTALL_BIN}" \
+        || warn "Script not found, skipping: ${WIFI_INSTALL_BIN}"
+
+    ok "anchorman-wifi uninstalled."
+    echo "  Log files left in place: ${WIFI_LOG}, ${WIFI_ERROR_LOG}"
+}
+
+# ---------------------------------------------------------------------------
+# Uninstall Bluetooth daemon
+# ---------------------------------------------------------------------------
+uninstall_bluetooth() {
+    info "Uninstalling anchorman-bluetooth daemon..."
+
+    if launchctl list "${BT_LABEL}" &>/dev/null; then
+        launchctl unload "${BT_INSTALL_PLIST}" 2>/dev/null || true
+    else
+        warn "Bluetooth daemon was not loaded — skipping unload."
+    fi
+
+    [[ -f "${BT_INSTALL_PLIST}" ]] && rm -f "${BT_INSTALL_PLIST}" \
+        || warn "Plist not found, skipping: ${BT_INSTALL_PLIST}"
+    [[ -f "${BT_INSTALL_BIN}" ]] && rm -f "${BT_INSTALL_BIN}" \
+        || warn "Script not found, skipping: ${BT_INSTALL_BIN}"
+
+    ok "anchorman-bluetooth uninstalled."
+    echo "  Config left in place: ${BT_CONF}"
+    echo "  Log files left in place: ${BT_LOG}, ${BT_ERROR_LOG}"
 }
 
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
-ACTION="${1:-}"
+UNINSTALL=false
+COMPONENT=""  # "wifi", "bluetooth", or "" (both)
+
+for arg in "$@"; do
+    case "$arg" in
+        --uninstall)  UNINSTALL=true ;;
+        --wifi)       COMPONENT="wifi" ;;
+        --bluetooth)  COMPONENT="bluetooth" ;;
+        *) die "Unknown argument: $arg
+Usage: sudo $0 [--wifi | --bluetooth] [--uninstall]" ;;
+    esac
+done
 
 preflight "$@"
 
-case "$ACTION" in
-    --uninstall) uninstall_daemon ;;
-    "")          install_daemon   ;;
-    *)           die "Unknown argument: $ACTION\nUsage: sudo $0 [--uninstall]" ;;
-esac
+if [[ "$UNINSTALL" == "true" ]]; then
+    case "$COMPONENT" in
+        wifi)      uninstall_wifi ;;
+        bluetooth) uninstall_bluetooth ;;
+        *)         uninstall_wifi; uninstall_bluetooth ;;
+    esac
+else
+    case "$COMPONENT" in
+        wifi)
+            preflight_wifi
+            install_wifi
+            echo
+            echo "Tip: plug/unplug your ethernet cable and watch:"
+            echo "  tail -f ${WIFI_LOG}"
+            ;;
+        bluetooth)
+            preflight_bluetooth
+            install_bluetooth
+            echo
+            echo "Tip: plug/unplug your Thunderbolt dock and watch:"
+            echo "  tail -f ${BT_LOG}"
+            ;;
+        *)
+            preflight_wifi
+            preflight_bluetooth
+            echo
+            install_wifi
+            echo
+            install_bluetooth
+            echo
+            echo "Tip: plug/unplug your Thunderbolt dock and watch both logs:"
+            echo "  tail -f ${WIFI_LOG} ${BT_LOG}"
+            ;;
+    esac
+fi
+echo
