@@ -12,6 +12,24 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
+# Usage / help
+# ---------------------------------------------------------------------------
+usage() {
+    cat <<EOF
+Usage: sudo ./install.sh [--wifi | --bluetooth] [--uninstall]
+
+Install or uninstall the anchorman launchd daemons.
+Installs both daemons when run without options.
+
+Options:
+  --wifi         Target only the WiFi daemon (disables WiFi when ethernet is active)
+  --bluetooth    Target only the Bluetooth daemon (connects BT devices when dock is present)
+  --uninstall    Remove instead of install the targeted daemon(s)
+  -h, --help     Show this help message and exit
+EOF
+}
+
+# ---------------------------------------------------------------------------
 # Paths — WiFi daemon
 # ---------------------------------------------------------------------------
 WIFI_SCRIPT_NAME="anchorman-wifi.sh"
@@ -242,11 +260,11 @@ COMPONENT=""  # "wifi", "bluetooth", or "" (both)
 
 for arg in "$@"; do
     case "$arg" in
-        --uninstall)  UNINSTALL=true ;;
-        --wifi)       COMPONENT="wifi" ;;
-        --bluetooth)  COMPONENT="bluetooth" ;;
-        *) die "Unknown argument: $arg
-Usage: sudo $0 [--wifi | --bluetooth] [--uninstall]" ;;
+        --uninstall)    UNINSTALL=true ;;
+        --wifi)         COMPONENT="wifi" ;;
+        --bluetooth)    COMPONENT="bluetooth" ;;
+        -h|--help)      usage; exit 0 ;;
+        *) error "Unknown argument: $arg"; echo >&2; usage >&2; exit 1 ;;
     esac
 done
 
