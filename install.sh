@@ -33,8 +33,8 @@ EOF
 # Paths — WiFi daemon
 # ---------------------------------------------------------------------------
 WIFI_SCRIPT_NAME="anchorman-wifi.sh"
-WIFI_PLIST_NAME="com.local.anchorman-wifi.plist"
-WIFI_LABEL="com.local.anchorman-wifi"
+WIFI_PLIST_NAME="com.gringolito.anchorman-wifi.plist"
+WIFI_LABEL="com.gringolito.anchorman-wifi"
 WIFI_INSTALL_BIN="/usr/local/bin/anchorman-wifi"
 WIFI_INSTALL_PLIST="/Library/LaunchDaemons/${WIFI_PLIST_NAME}"
 WIFI_LOG="/var/log/anchorman-wifi.log"
@@ -44,18 +44,13 @@ WIFI_ERROR_LOG="/var/log/anchorman-wifi.error.log"
 # Paths — Bluetooth daemon
 # ---------------------------------------------------------------------------
 BT_SCRIPT_NAME="anchorman-bluetooth.sh"
-BT_PLIST_NAME="com.local.anchorman-bluetooth.plist"
-BT_LABEL="com.local.anchorman-bluetooth"
+BT_PLIST_NAME="com.gringolito.anchorman-bluetooth.plist"
+BT_LABEL="com.gringolito.anchorman-bluetooth"
 BT_INSTALL_BIN="/usr/local/bin/anchorman-bluetooth"
 BT_INSTALL_PLIST="/Library/LaunchDaemons/${BT_PLIST_NAME}"
 BT_CONF="/usr/local/etc/anchorman-bluetooth.conf"
 BT_LOG="/var/log/anchorman-bluetooth.log"
 BT_ERROR_LOG="/var/log/anchorman-bluetooth.error.log"
-
-# Legacy label/paths for migration
-LEGACY_LABEL="com.local.anchorman"
-LEGACY_BIN="/usr/local/bin/anchorman"
-LEGACY_PLIST="/Library/LaunchDaemons/com.local.anchorman.plist"
 
 # Source files are in the same directory as this script
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -112,24 +107,10 @@ preflight_bluetooth() {
 }
 
 # ---------------------------------------------------------------------------
-# Migration: remove legacy 'anchorman' daemon if present
-# ---------------------------------------------------------------------------
-migrate_legacy() {
-    if launchctl list "${LEGACY_LABEL}" &>/dev/null; then
-        info "Migrating legacy 'anchorman' daemon to 'anchorman-wifi'..."
-        launchctl unload "${LEGACY_PLIST}" 2>/dev/null || true
-    fi
-    [[ -f "${LEGACY_PLIST}" ]] && rm -f "${LEGACY_PLIST}"
-    [[ -f "${LEGACY_BIN}" ]]   && rm -f "${LEGACY_BIN}"
-}
-
-# ---------------------------------------------------------------------------
 # Install WiFi daemon
 # ---------------------------------------------------------------------------
 install_wifi() {
     info "Installing anchorman-wifi daemon..."
-
-    migrate_legacy
 
     cp "${REPO_DIR}/${WIFI_SCRIPT_NAME}" "${WIFI_INSTALL_BIN}"
     chmod 755 "${WIFI_INSTALL_BIN}"
@@ -186,7 +167,7 @@ POLL_INTERVAL=3
 # Bluetooth devices to connect when the dock is detected.
 # Find paired device MAC addresses with: blueutil --paired
 # Example:
-#   BLUETOOTH_DEVICES=("aa:bb:cc:dd:ee:ff" "11:22:33:44:55:66")
+#   BLUETOOTH_DEVICES=("aa-bb-cc-dd-ee-ff" "11-22-33-44-55-66")
 BLUETOOTH_DEVICES=()
 EOF
         warn "Edit ${BT_CONF} to set your DOCK_NAME and BLUETOOTH_DEVICES before the daemon will do anything."

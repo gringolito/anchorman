@@ -5,7 +5,7 @@
 <dict>
     <!-- Unique identifier for this daemon -->
     <key>Label</key>
-    <string>com.local.anchorman-bluetooth</string>
+    <string>com.gringolito.anchorman-bluetooth</string>
 
     <!-- Path to the watcher script -->
     <key>ProgramArguments</key>

@@ -99,8 +99,8 @@ BLUETOOTH_DEVICES=("aa:bb:cc:dd:ee:ff" "11:22:33:44:55:66")
 #### 4. Reload the daemon
 
 ```bash
-sudo launchctl unload /Library/LaunchDaemons/com.local.anchorman-bluetooth.plist
-sudo launchctl load  /Library/LaunchDaemons/com.local.anchorman-bluetooth.plist
+sudo launchctl unload /Library/LaunchDaemons/com.gringolito.anchorman-bluetooth.plist
+sudo launchctl load  /Library/LaunchDaemons/com.gringolito.anchorman-bluetooth.plist
 ```
 
 **Logs:**
@@ -122,6 +122,6 @@ sudo launchctl list | grep anchorman
 |------|---------|
 | `anchorman-wifi.sh` | WiFi daemon (installed to `/usr/local/bin/`) |
 | `anchorman-bluetooth.sh` | Bluetooth daemon (installed to `/usr/local/bin/`) |
-| `com.local.anchorman-wifi.plist` | launchd service definition for WiFi daemon |
-| `com.local.anchorman-bluetooth.plist` | launchd service definition for Bluetooth daemon |
+| `com.gringolito.anchorman-wifi.plist` | launchd service definition for WiFi daemon |
+| `com.gringolito.anchorman-bluetooth.plist` | launchd service definition for Bluetooth daemon |
 | `install.sh` | Installer / uninstaller |
