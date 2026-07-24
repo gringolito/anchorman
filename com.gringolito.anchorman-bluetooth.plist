@@ -22,11 +22,11 @@
     <key>KeepAlive</key>
     <true/>
 
-    <!-- Log stdout and stderr -->
+    <!-- Log stdout and stderr to the same file -->
     <key>StandardOutPath</key>
     <string>/var/log/anchorman-bluetooth.log</string>
     <key>StandardErrorPath</key>
-    <string>/var/log/anchorman-bluetooth.error.log</string>
+    <string>/var/log/anchorman-bluetooth.log</string>
 
     <!-- Runs as root; blueutil is invoked as the console user via su -->
     <!-- (LaunchDaemons in /Library/LaunchDaemons already run as root) -->
