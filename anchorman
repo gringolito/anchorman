@@ -1,0 +1,357 @@
+#!/usr/bin/env bash
+# anchorman — Control the anchorman launchd daemons
+#
+# Usage: anchorman <verb> [--now] <target...>
+#
+#   anchorman start wifi
+#   anchorman stop bluetooth
+#   anchorman enable --now all
+#   anchorman disable bluetooth
+#   anchorman restart wifi
+#   anchorman status all
+#
+# Operates on the system launchd domain and self-elevates via sudo when not run
+# as root, so no explicit sudo prefix is required.
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Usage / help
+# ---------------------------------------------------------------------------
+usage() {
+    cat <<EOF
+Usage: anchorman <verb> [--now] <target...>
+
+Control the anchorman launchd daemons.
+Self-elevates via sudo when not run as root.
+
+Verbs:
+  start      Bootstrap (start) the daemon for this session
+  stop       Bootout (stop) the daemon for this session
+  enable     Mark the daemon to start at boot
+  disable    Mark the daemon to not start at boot
+  restart    Restart a running daemon; start it if currently stopped
+  status     Show run state, boot state, and the last 10 log lines
+
+Targets:
+  wifi         The WiFi manager daemon
+  bluetooth    The Bluetooth manager daemon
+  all          Both daemons
+
+Options:
+  --now        Combined with enable/disable: also start/stop the daemon
+  -h, --help   Show this help message and exit
+
+Examples:
+  anchorman start wifi
+  anchorman enable --now bluetooth
+  anchorman disable --now all
+  anchorman status all
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Colour helpers — mirrors install.sh exactly
+# ---------------------------------------------------------------------------
+if [[ -t 1 ]] && command -v tput &>/dev/null; then
+    _BOLD=$(tput bold)
+    _GREEN=$(tput setaf 2)
+    _YELLOW=$(tput setaf 3)
+    _RED=$(tput setaf 1)
+    _RESET=$(tput sgr0)
+else
+    _BOLD="" _GREEN="" _YELLOW="" _RED="" _RESET=""
+fi
+
+info()  { echo "${_BOLD}[INFO]${_RESET}  $*"; }
+ok()    { echo "${_GREEN}${_BOLD}[ OK ]${_RESET}  $*"; }
+warn()  { echo "${_YELLOW}${_BOLD}[WARN]${_RESET}  $*"; }
+error() { echo "${_RED}${_BOLD}[ERROR]${_RESET} $*" >&2; }
+die()   { error "$*"; exit 1; }
+
+# ---------------------------------------------------------------------------
+# Path helpers — derived from naming convention; no shared config file
+# ---------------------------------------------------------------------------
+target_label() { echo "com.gringolito.anchorman-${1}"; }
+target_plist() { echo "/Library/LaunchDaemons/com.gringolito.anchorman-${1}.plist"; }
+target_log()   { echo "/var/log/anchorman-${1}.log"; }
+
+# ---------------------------------------------------------------------------
+# State helpers
+# ---------------------------------------------------------------------------
+is_installed() {
+    local target="$1"
+    [[ -f "$(target_plist "${target}")" ]]
+}
+
+is_running() {
+    local target="$1"
+    launchctl print "system/$(target_label "${target}")" &>/dev/null
+}
+
+is_enabled() {
+    local target="$1"
+    local label result
+    label="$(target_label "${target}")"
+    result=$(launchctl print-disabled system 2>/dev/null | grep -F "${label}") || true
+    if [[ -z "${result}" ]]; then
+        return 0  # Not listed → enabled by default
+    fi
+    if echo "${result}" | grep -qE "=> (true|disabled)"; then
+        return 1  # Explicitly disabled
+    fi
+    return 0  # Listed as "=> false" / "=> enabled"
+}
+
+# ---------------------------------------------------------------------------
+# Verb implementations
+# ---------------------------------------------------------------------------
+do_start() {
+    local target="$1"
+    local plist err
+    plist="$(target_plist "${target}")"
+
+    if is_running "${target}"; then
+        info "${target} already running"
+        return 0
+    fi
+
+    if ! is_enabled "${target}"; then
+        error "${target} is disabled — run: anchorman enable --now ${target}"
+        return 1
+    fi
+
+    info "Starting ${target}..."
+    err=$(launchctl bootstrap system "${plist}" 2>&1) || {
+        error "${target}: bootstrap failed: ${err}"
+        return 1
+    }
+    ok "${target} started."
+}
+
+do_stop() {
+    local target="$1"
+    local label
+    label="$(target_label "${target}")"
+
+    if ! is_running "${target}"; then
+        info "${target} already stopped"
+        return 0
+    fi
+
+    info "Stopping ${target}..."
+    launchctl bootout "system/${label}" || {
+        error "${target}: bootout failed"
+        return 1
+    }
+    ok "${target} stopped."
+}
+
+do_enable() {
+    local target="$1"
+    local label
+    label="$(target_label "${target}")"
+
+    info "Enabling ${target}..."
+    launchctl enable "system/${label}" || {
+        error "${target}: enable failed"
+        return 1
+    }
+    ok "${target} enabled (will start at next boot)."
+}
+
+do_disable() {
+    local target="$1"
+    local label
+    label="$(target_label "${target}")"
+
+    info "Disabling ${target}..."
+    launchctl disable "system/${label}" || {
+        error "${target}: disable failed"
+        return 1
+    }
+    ok "${target} disabled (will not start at next boot)."
+}
+
+do_restart() {
+    local target="$1"
+    local label
+    label="$(target_label "${target}")"
+
+    if is_running "${target}"; then
+        info "Restarting ${target}..."
+        launchctl kickstart -k "system/${label}" || {
+            error "${target}: kickstart failed"
+            return 1
+        }
+        ok "${target} restarted."
+    else
+        info "${target} is not running — starting..."
+        do_start "${target}"
+    fi
+}
+
+do_status() {
+    local target="$1"
+    local log run_state boot_state
+    log="$(target_log "${target}")"
+
+    if is_running "${target}"; then
+        run_state="${_GREEN}running${_RESET}"
+    else
+        run_state="${_RED}stopped${_RESET}"
+    fi
+
+    if is_enabled "${target}"; then
+        boot_state="${_GREEN}enabled${_RESET}"
+    else
+        boot_state="${_RED}disabled${_RESET}"
+    fi
+
+    echo "${_BOLD}${target}${_RESET}  ${run_state} / ${boot_state}"
+    echo
+
+    if [[ -f "${log}" ]]; then
+        echo "  Last 10 lines of ${log}:"
+        tail -10 "${log}" | sed 's/^/    /'
+    else
+        echo "  Log not found: ${log}"
+    fi
+    echo
+}
+
+# ---------------------------------------------------------------------------
+# Dispatch — handles not-installed; multi=true uses best-effort semantics
+# ---------------------------------------------------------------------------
+dispatch() {
+    local verb="$1" target="$2" multi="$3"
+
+    if ! is_installed "${target}"; then
+        if [[ "${verb}" == "status" ]]; then
+            echo "${_BOLD}${target}${_RESET}  not installed"
+            echo
+            return 0
+        elif [[ "${multi}" == "true" ]]; then
+            warn "${target} is not installed — skipping."
+            return 0
+        else
+            error "${target} is not installed — run: sudo ./install.sh --${target}"
+            return 1
+        fi
+    fi
+
+    case "${verb}" in
+        start)   do_start   "${target}" ;;
+        stop)    do_stop    "${target}" ;;
+        enable)  do_enable  "${target}" ;;
+        disable) do_disable "${target}" ;;
+        restart) do_restart "${target}" ;;
+        status)  do_status  "${target}" ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+# Quick scan for --help before self-elevation (help needs no privileges)
+for arg in "$@"; do
+    [[ "${arg}" == "-h" || "${arg}" == "--help" ]] && { usage; exit 0; }
+done
+
+# Preflight: macOS-only
+[[ "$(uname)" == "Darwin" ]] || die "anchorman is macOS-only."
+
+# All six verbs operate on the system launchd domain, which requires root.
+# Self-elevate via sudo rather than failing, so the caller need not prefix it.
+if [[ $EUID -ne 0 ]]; then
+    # Resolve our own absolute path first — sudo's secure_path typically omits
+    # /usr/local/bin, so re-exec'ing a bare "anchorman" would not be found.
+    self="$0"
+    [[ "${self}" == /* ]] || self="$(command -v -- "${self}" 2>/dev/null || echo "${self}")"
+    exec sudo "${self}" "$@"
+fi
+
+# Parse arguments
+VERB=""
+NOW=false
+TARGETS=()
+
+for arg in "$@"; do
+    case "${arg}" in
+        start|stop|enable|disable|restart|status)
+            VERB="${arg}" ;;
+        wifi|bluetooth|all)
+            TARGETS+=("${arg}") ;;
+        --now)
+            NOW=true ;;
+        -h|--help)
+            : ;;  # Already handled above
+        *)
+            error "Unknown argument: ${arg}"
+            echo >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+done
+
+if [[ -z "${VERB}" ]]; then
+    error "No verb specified."
+    echo >&2
+    usage >&2
+    exit 1
+fi
+
+if [[ ${#TARGETS[@]} -eq 0 ]]; then
+    error "No target specified."
+    echo >&2
+    usage >&2
+    exit 1
+fi
+
+# --now is only meaningful with enable and disable
+if [[ "${NOW}" == "true" && "${VERB}" != "enable" && "${VERB}" != "disable" ]]; then
+    error "--now is only valid with enable or disable."
+    echo >&2
+    usage >&2
+    exit 1
+fi
+
+# Expand "all" shorthand
+EXPANDED=()
+for t in "${TARGETS[@]}"; do
+    if [[ "${t}" == "all" ]]; then
+        EXPANDED+=("wifi" "bluetooth")
+    else
+        EXPANDED+=("${t}")
+    fi
+done
+
+# Multi-target invocations use best-effort semantics for not-installed targets
+MULTI=false
+[[ ${#EXPANDED[@]} -gt 1 ]] && MULTI=true
+
+# Run the primary verb
+EXIT_CODE=0
+for target in "${EXPANDED[@]}"; do
+    dispatch "${VERB}" "${target}" "${MULTI}" || EXIT_CODE=1
+done
+
+# Handle --now: after enable → also start; after disable → also stop
+if [[ "${NOW}" == "true" ]]; then
+    case "${VERB}" in
+        enable)
+            for target in "${EXPANDED[@]}"; do
+                dispatch "start" "${target}" "${MULTI}" || EXIT_CODE=1
+            done
+            ;;
+        disable)
+            for target in "${EXPANDED[@]}"; do
+                dispatch "stop" "${target}" "${MULTI}" || EXIT_CODE=1
+            done
+            ;;
+    esac
+fi
+
+exit "${EXIT_CODE}"

@@ -13,7 +13,7 @@ Unplug and hand the cable to the other Mac — it takes over just as seamlessly.
 
 ---
 
-A pair of macOS launchd daemons that manage your peripherals automatically when you dock and undock.
+A pair of macOS launchd daemons that manage your peripherals automatically when you dock and undock, controlled by the `anchorman` CLI.
 
 | Daemon                | What it does                                     |
 |-----------------------|--------------------------------------------------|
@@ -32,7 +32,7 @@ A pair of macOS launchd daemons that manage your peripherals automatically when 
 sudo ./install.sh
 ```
 
-This installs both daemons. To install only one:
+This installs both daemons and the `anchorman` CLI. To install only one daemon (also installs the CLI):
 
 ```bash
 sudo ./install.sh --wifi
@@ -45,7 +45,54 @@ sudo ./install.sh --bluetooth
 sudo ./install.sh --uninstall
 ```
 
+This removes both daemons and the CLI. To uninstall a single daemon without removing the CLI:
+
+```bash
+sudo ./install.sh --uninstall --wifi
+sudo ./install.sh --uninstall --bluetooth
+```
+
 Log files and the Bluetooth config file are left in place and must be removed manually if desired.
+
+## The `anchorman` CLI
+
+After installation, use the `anchorman` command to control the daemons without editing plists or writing raw `launchctl` invocations. It operates on the system launchd domain, so it self-elevates via `sudo` when not run as root.
+
+```text
+Usage: anchorman <verb> [--now] <target...>
+
+Verbs:
+  start      Bootstrap (start) the daemon for this session
+  stop       Bootout (stop) the daemon for this session
+  enable     Mark the daemon to start at boot
+  disable    Mark the daemon to not start at boot
+  restart    Restart a running daemon; start it if currently stopped
+  status     Show run state, boot state, and the last 10 log lines
+
+Targets:  wifi  |  bluetooth  |  all
+
+Options:
+  --now        Combined with enable/disable: also start/stop the daemon
+```
+
+### Examples
+
+```bash
+# Check what's running
+anchorman status all
+
+# Start the wifi daemon for this session only
+anchorman start wifi
+
+# Permanently disable the bluetooth daemon and stop it now
+anchorman disable --now bluetooth
+
+# Re-enable both daemons and start them immediately
+anchorman enable --now all
+
+# Bounce the wifi daemon (restart if running, start if stopped)
+anchorman restart wifi
+```
 
 ## WiFi Manager (anchorman-wifi)
 
@@ -55,7 +102,6 @@ Watches for network interface events using `route monitor`. When a change is det
 
 ```bash
 tail -f /var/log/anchorman-wifi.log
-tail -f /var/log/anchorman-wifi.error.log
 ```
 
 **Verify it works:** plug in an ethernet cable — WiFi should turn off within a second. Unplug — WiFi comes back.
@@ -99,27 +145,26 @@ BLUETOOTH_DEVICES=("aa:bb:cc:dd:ee:ff" "11:22:33:44:55:66")
 #### 4. Reload the daemon
 
 ```bash
-sudo launchctl unload /Library/LaunchDaemons/com.gringolito.anchorman-bluetooth.plist
-sudo launchctl load  /Library/LaunchDaemons/com.gringolito.anchorman-bluetooth.plist
+anchorman restart bluetooth
 ```
 
 **Logs:**
 
 ```bash
 tail -f /var/log/anchorman-bluetooth.log
-tail -f /var/log/anchorman-bluetooth.error.log
 ```
 
 ## Verifying the daemons are running
 
 ```bash
-sudo launchctl list | grep anchorman
+anchorman status all
 ```
 
 ## Files
 
 | File | Purpose |
 |------|---------|
+| `anchorman` | CLI for controlling the daemons (installed to `/usr/local/bin/`) |
 | `anchorman-wifi.sh` | WiFi daemon (installed to `/usr/local/bin/`) |
 | `anchorman-bluetooth.sh` | Bluetooth daemon (installed to `/usr/local/bin/`) |
 | `com.gringolito.anchorman-wifi.plist` | launchd service definition for WiFi daemon |
