@@ -18,7 +18,7 @@ A pair of macOS launchd daemons that manage your peripherals automatically when 
 | Daemon                | What it does                                     |
 |-----------------------|--------------------------------------------------|
 | `anchorman-wifi`      | Disables WiFi when docked to ethernet            |
-| `anchorman-bluetooth` | Connects Bluetooth peripherals when dock present |
+| `anchorman-bluetooth` | Connects Bluetooth peripherals when a dock is present |
 
 ## Requirements
 
@@ -62,22 +62,38 @@ tail -f /var/log/anchorman-wifi.error.log
 
 ## Bluetooth Manager (anchorman-bluetooth)
 
-Polls the IORegistry every few seconds for a specific Thunderbolt dock. When the dock appears, it connects the configured Bluetooth devices. When the dock is removed, it disconnects them.
+Polls the IORegistry every few seconds for the docks listed in the config file. This covers both Thunderbolt docks and plain USB-C docks. When any of them appears, the configured Bluetooth devices connect; when the last one disappears, they disconnect.
 
-This means when you move the Thunderbolt cable from Mac A to Mac B:
+This means when you move the dock between Mac A and Mac B:
 
 1. Mac A detects dock removal → disconnects your keyboard and mouse
 2. Mac B detects dock arrival → connects your keyboard and mouse
 
 ### Setup
 
-#### 1. Find your dock name
+#### 1. Identify each dock
+
+For a Thunderbolt dock, use any unique substring of the name macOS reports:
 
 ```bash
 system_profiler SPThunderboltDataType
 ```
 
-Look for `device_name_key`. Use any unique substring of the name as your `DOCK_NAME`.
+For a plain USB-C dock, look up the vendor and product ID of one of its USB
+devices. Use the hex values printed by `ioreg` (a hub, a network adapter or any
+other device on the dock works — pick one the dock always exposes):
+
+```bash
+ioreg -p IOUSB -w0 -l | grep -E '"USB Product Name"|"idVendor"|"idProduct"'
+```
+
+| USB Product Name | idVendor | idProduct | Use as |
+|---|---|---|---|
+| `USB-C multiport device` | `8457` | `256` | `usb:2109:0100` |
+| `USB 10/100/1000 LAN` | `3034` | `33107` | `usb:0bda:8153` |
+
+Vendor and product IDs identify a chip, not a brand, so a cheap dock and a bare
+USB-Ethernet dongle can share one. Prefer an ID that only your dock exposes.
 
 #### 2. Find your Bluetooth device MAC addresses
 
@@ -90,11 +106,20 @@ blueutil --paired
 ```bash
 sudo nano /usr/local/etc/anchorman-bluetooth.conf
 ```
-
 ```bash
-DOCK_NAME="Express Dock"   # substring of your dock's product name
+# DOCK_NAMES and DOCK_MATCHERS are parallel arrays: entry N of the matchers
+# detects entry N of the names. Any attached dock connects the devices.
+DOCK_NAMES=("Thunderbolt 3 Express Dock HD" "USB-C Multiport Dock")
+DOCK_MATCHERS=("thunderbolt" "usb:2109:0100")
 BLUETOOTH_DEVICES=("aa:bb:cc:dd:ee:ff" "11:22:33:44:55:66")
 ```
+
+Matcher types:
+
+| Matcher | Detects |
+|---|---|
+| `thunderbolt` | a Thunderbolt switch whose product name contains the matching `DOCK_NAMES` entry |
+| `usb:VVVV:PPPP` | an attached USB device with that vendor/product ID |
 
 #### 4. Reload the daemon
 
