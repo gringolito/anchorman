@@ -176,22 +176,30 @@ install_bluetooth() {
 # anchorman-bluetooth.conf
 # Configuration for the anchorman-bluetooth dock Bluetooth manager.
 
-# Name of your Thunderbolt dock as reported by macOS.
-# Use any unique substring of the dock's product name.
-# To find your dock name, run:
-#   system_profiler SPThunderboltDataType
-DOCK_NAME=""
+# The docks to watch, as two parallel arrays: DOCK_MATCHERS[N] detects the
+# dock named in DOCK_NAMES[N]. Any attached dock connects BLUETOOTH_DEVICES;
+# losing all of them disconnects those devices.
+#
+# Supported matchers:
+#   thunderbolt     a Thunderbolt dock whose product name contains the
+#                   matching DOCK_NAMES entry. Find the name with:
+#                     system_profiler SPThunderboltDataType
+#   usb:VVVV:PPPP   a USB device with that vendor/product ID, for plain
+#                   USB-C docks. Find the IDs with:
+#                     ioreg -p IOUSB -w0 -l | grep -E '"idVendor"|"idProduct"'
+DOCK_NAMES=("Thunderbolt 3 Express Dock HD" "USB-C Multiport Dock")
+DOCK_MATCHERS=("thunderbolt" "usb:2109:0100")
 
 # How often (in seconds) to check for dock presence (default: 3)
 POLL_INTERVAL=3
 
-# Bluetooth devices to connect when the dock is detected.
+# Bluetooth devices to connect when a dock is detected.
 # Find paired device MAC addresses with: blueutil --paired
 # Example:
-#   BLUETOOTH_DEVICES=("aa-bb-cc-dd-ee-ff" "11-22-33-44-55-66")
+#   BLUETOOTH_DEVICES=("aa:bb:cc:dd:ee:ff" "11:22:33:44:55:66")
 BLUETOOTH_DEVICES=()
 EOF
-        warn "Edit ${BT_CONF} to set your DOCK_NAME and BLUETOOTH_DEVICES before the daemon will do anything."
+        warn "Edit ${BT_CONF} to set your DOCK_NAMES, DOCK_MATCHERS and BLUETOOTH_DEVICES before the daemon will do anything."
     fi
 
     if launchctl print "system/${BT_LABEL}" &>/dev/null; then
